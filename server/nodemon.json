@@ -1,0 +1,6 @@
+{
+  "//": "Watch only source files. Without this, every save to data.json would restart the server.",
+  "watch": ["src"],
+  "ext": "js",
+  "ignore": ["src/**/*.test.js"]
+}

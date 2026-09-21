@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+
+# Local application data - created on first run, safe to delete
+server/data.json
+server/data.json.tmp
+server/data.json.corrupt-*
+
+# Optional local overrides
+.env
+.env.local
+*.log
+.DS_Store
