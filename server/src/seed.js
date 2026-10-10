@@ -88,10 +88,12 @@ async function run() {
   Attractions.insert({
     tripId: trip._id, name: 'Senso-ji Temple', description: 'Oldest temple in Tokyo.',
     rating: 5, visitDate: '2026-09-15', mapLink: 'https://maps.google.com/?q=Senso-ji', createdBy: hanpin._id,
+    latitude: 35.7148, longitude: 139.7967, poiId: 'tokyo-senso-ji-temple',
   });
   Attractions.insert({
     tripId: trip._id, name: 'Shibuya Sky', description: 'Rooftop observation deck.',
     rating: 4, visitDate: null, mapLink: null, createdBy: henry._id,
+    latitude: 35.6585, longitude: 139.7021, poiId: 'tokyo-shibuya-sky',
   });
 
   Restaurants.insert({
