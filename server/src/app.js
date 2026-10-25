@@ -10,6 +10,7 @@ import attractionRoutes from './routes/attractions.js';
 import restaurantRoutes from './routes/restaurants.js';
 import transportationRoutes from './routes/transportation.js';
 import budgetRoutes from './routes/budget.js';
+import suggestionsRouter from './routes/suggestions.js';
 import { notFound, errorHandler } from './middleware/errors.js';
 
 /**
@@ -34,6 +35,7 @@ export function createApp() {
   app.use('/api/trips/:tripId/restaurants', restaurantRoutes);
   app.use('/api/trips/:tripId/transportation', transportationRoutes);
   app.use('/api/trips/:tripId/budget', budgetRoutes);
+  app.use('/api/trips/:tripId/suggestions', suggestionsRouter)
 
   app.use(notFound);
   app.use(errorHandler);
