@@ -1,12 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import request from 'supertest';
-import app from '../src/app.js';
+import { createApp } from '../src/app.js';
+import { Trips, Itineraries } from '../src/db/index.js';
 
 vi.mock('../src/middleware/auth.js', () => ({
     requireAuth: (req, _res, next) => {
-        req.user = { _id: 'test-user-1', username: 'jonathan' };
+        req.user = {
+            _id: 'test-user-1',
+            username: 'jonathan'
+        };
         next();
     },
+
     requireTripMember: (req, _res, next) => {
         req.trip = {
             _id: 'trip-123',
@@ -15,23 +20,61 @@ vi.mock('../src/middleware/auth.js', () => ({
             suggestionWeights: null,
             dismissedSuggestionIds: []
         };
+
+        req.membership = {
+            role: 'admin',
+            status: 'joined'
+        };
+
+        next();
+    },
+
+    requireTripAdmin: (_req, _res, next) => {
         next();
     }
 }));
 
+const app = createApp();
+
 describe('Core Flow Integration Tests', () => {
     beforeEach(() => {
-        // Make sure to RESET the database before each test
+        Itineraries.removeWhere(() => true);
+        Trips.removeWhere(() => true);
+
+        Trips.insert({
+            _id: 'trip-123',
+            title: 'Test Trip',
+            destination: 'Tokyo',
+            startDate: '2026-11-01',
+            endDate: '2026-11-03',
+
+            members: [
+                {
+                    _id: 'member-1',
+                    userId: 'test-user-1',
+                    role: 'admin',
+                    status: 'joined'
+                }
+            ],
+
+            suggestionWeights: null,
+            dismissedSuggestionIds: []
+        });
     });
 
     describe('1. Auth & Trips', () => {
         it('should successfully create a trip', async () => {
             const res = await request(app)
                 .post('/api/trips')
-                .send({ name: 'Tokyo Trip', destination: 'Tokyo', startDate: '2026-11-01', endDate: '2026-11-03' });
+                .send({
+                    title: 'Tokyo Trip',
+                    destination: 'Tokyo',
+                    startDate: '2026-11-01',
+                    endDate: '2026-11-03'
+                });
 
             expect(res.status).toBe(201);
-            expect(res.body.name).toBe('Tokyo Trip');
+            expect(res.body.title).toBe('Tokyo Trip');
         });
     });
 
@@ -39,11 +82,19 @@ describe('Core Flow Integration Tests', () => {
         it('should reject overlapping activities (409 Conflict)', async () => {
             await request(app)
                 .post('/api/trips/trip-123/itinerary/2026-11-01/activities')
-                .send({ title: 'Senso-ji', startTime: '10:00', endTime: '12:00' });
+                .send({
+                    title: 'Senso-ji',
+                    startTime: '10:00',
+                    endTime: '12:00'
+                });
 
             const res = await request(app)
                 .post('/api/trips/trip-123/itinerary/2026-11-01/activities')
-                .send({ title: 'Lunch', startTime: '11:30', endTime: '13:00' });
+                .send({
+                    title: 'Lunch',
+                    startTime: '11:30',
+                    endTime: '13:00'
+                });
 
             expect(res.status).toBe(409);
             expect(res.body.conflicts).toHaveLength(1);
@@ -55,7 +106,12 @@ describe('Core Flow Integration Tests', () => {
         it('should update scoring weights', async () => {
             const res = await request(app)
                 .put('/api/trips/trip-123/suggestions/weights')
-                .send({ popularity: 10, cost: 40, duration: 25, detour: 25 });
+                .send({
+                    popularity: 10,
+                    cost: 40,
+                    duration: 25,
+                    detour: 25
+                });
 
             expect(res.status).toBe(200);
             expect(res.body.weights.cost).toBe(40);
@@ -64,10 +120,14 @@ describe('Core Flow Integration Tests', () => {
         it('should dismiss a suggestion', async () => {
             const res = await request(app)
                 .post('/api/trips/trip-123/suggestions/dismiss')
-                .send({ suggestionId: 'osm-node-12345' });
+                .send({
+                    suggestionId: 'osm-node-12345'
+                });
 
             expect(res.status).toBe(200);
-            expect(res.body.dismissedIds).toContain('osm-node-12345');
+            expect(res.body.dismissedIds).toContain(
+                'osm-node-12345'
+            );
         });
     });
 });
