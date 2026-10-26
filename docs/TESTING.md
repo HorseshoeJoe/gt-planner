@@ -1,6 +1,103 @@
-# Testing Evidence – Phase I
+# Testing Evidence
+
+Evidence for the test plan in [`TEST_PLAN.md`](TEST_PLAN.md). Phase II results are first; the Phase I record is kept below.
+
+# Phase II
 
 ## How to reproduce
+
+```bash
+npm install
+npm test                                     # server + client suites
+npm run test:coverage --workspace server     # server suites with coverage
+npm run build                                # production build
+```
+
+## Results (run on 2026-10-25, Node v22)
+
+Server (16 files, 204 tests, all passing):
+
+```
+✓ tests/api.test.js (41 tests)
+✓ tests/attractionsGeo.test.js (3 tests)
+✓ tests/budget.test.js (11 tests)
+✓ tests/coreFlow.test.js (4 tests)
+✓ tests/itineraries.route.test.js (3 tests)
+✓ tests/poiService.test.js (10 tests)
+✓ tests/pois.test.js (7 tests)
+✓ tests/primaryFlow.test.js (10 tests)
+✓ tests/recommendation.engine.test.js (40 tests)
+✓ tests/recommendation.geo.test.js (13 tests)
+✓ tests/recommendation.poiPool.test.js (10 tests)
+✓ tests/recommendation.scoring.test.js (16 tests)
+✓ tests/recommendation.weights.test.js (6 tests)
+✓ tests/store.test.js (6 tests)
+✓ tests/suggestions.integration.test.js (13 tests)
+✓ tests/timeConflicts.test.js (11 tests)
+```
+
+Client (2 files, 15 tests, all passing): `Dashboard.test.jsx` (6), `Modal.test.jsx` (9).
+Client production build: succeeds.
+
+**Total: 219 tests, 0 failures, 0 skipped.** Phase I ended with 104 tests (89 server + 15 client). Phase II adds 115 server tests: 108 for the suggestion engine, the POI pool and the enrichment service, and 7 core-flow and itinerary-route tests for weights, dismissals and conflict handling.
+
+## Tests added in Phase II
+
+| File | Level | Tests | What it proves |
+| --- | --- | --- | --- |
+| `recommendation.geo.test.js` | Unit | 13 | Coordinate validation, haversine distance against a known real distance, travel-time model is monotonic, detour is never negative |
+| `recommendation.weights.test.js` | Unit | 6 | Defaults sum to 1, normalisation, partial and string input, rejection of negative / non-numeric / all-zero weights |
+| `recommendation.scoring.test.js` | Unit | 16 | Every factor's mapping and edge cases; score is the weighted sum; a perfect stop scores 100; popularity / cost / detour ordering; weights change the winner |
+| `recommendation.engine.test.js` | Unit | 40 | Gap detection from activity times, ordering, default gaps, exclusion of planned / dismissed stops, one suggestion per stop per day, limits, empty-day notes and the anchorless fallback, suggested start times, supplied candidate pools, performance (real pool and 1,000-POI synthetic pool) |
+| `recommendation.poiPool.test.js` | Unit | 10 | Overpass-to-engine conversion, cost tiers, merge with curated data, duplicates and bad records ignored, Overpass failure and 30 ms timeout handled |
+| `poiService.test.js` | Unit (scripted network) | 10 | Geocoding, Overpass request and normalisation, 80-place cap, endpoint fallback, cache reuse, clear errors |
+| `suggestions.integration.test.js` | Integration | 13 | Auth and input checks, ranking between two attractions, response shape used by the suggestion panel, start times, planned stops excluded, saved weights re-rank, dismissals persist for the group, Overpass merge, Overpass down, anchorless day, Overpass-only destination, empty result, updates after itinerary changes |
+| `coreFlow.test.js`, `itineraries.route.test.js` | Integration | 7 | Trip and itinerary conflict flow, saving weights, dismissing a suggestion |
+
+## Coverage (server)
+
+```
+Statements   : 93.72% ( 2315/2470 )
+Branches     : 85.23% ( 589/691 )
+Functions    : 94.89% ( 93/98 )
+Lines        : 93.72% ( 2315/2470 )
+```
+
+Key modules:
+
+```
+All files          |   93.72 |    85.23 |   94.89 |   93.72 |                   
+  suggestions.js   |   85.08 |    71.15 |     100 |   85.08 | ...61-367,408-414 
+  poiService.js    |   90.59 |       90 |     100 |   90.59 | ...38-143,214-228 
+  engine.js        |     100 |    95.55 |     100 |     100 | 55,70,78,229      
+  geo.js           |     100 |      100 |     100 |     100 |                   
+  poiPool.js       |     100 |    97.22 |     100 |     100 | 75                
+  scoring.js       |     100 |       95 |     100 |     100 | 81                
+  weights.js       |     100 |      100 |     100 |     100 |                   
+```
+
+## Performance evidence
+
+| Measurement | Result | Requirement |
+| --- | --- | --- |
+| Engine: 7-day trip, 3 attractions per day, 111-POI pool (median of 20 runs) | about 4 ms (worst about 46 ms) | under 2 s for 100+ POIs |
+| Engine: 7 busy days against a synthetic 1,000-POI pool | asserted under 2 s in `recommendation.engine.test.js` | – |
+| Whole `GET /suggestions?date=` against the running server, seeded trip | about 135 ms | – |
+| `meta.elapsedMs` returned with every response | asserted under 2000 in the integration tests | – |
+
+## Live check
+
+The server was started with the seeded demo trip and `GET /api/trips/:id/suggestions?date=2026-09-15` was called as a signed-in member. It returned ranked stops between Senso-ji Temple and teamLab Planets (for example Akihabara Electric Town, Tsukiji Outer Market, Ueno Park), each with a reason such as "8 minutes off your route between Senso-ji Temple and teamLab Planets", a suggested start time after 11:00, and its cost.
+
+## Known gaps
+
+See section 9 of the test plan: the React suggestion panel is covered through the API tests and manual checks rather than component tests; accessibility testing is manual so far.
+
+---
+
+# Phase I (kept for reference)
+
+## Phase I – how to reproduce
 
 ```bash
 npm install
