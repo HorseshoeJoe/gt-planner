@@ -13,9 +13,22 @@ A collaborative web application that lets a small travel group plan a trip toget
 | Phase | Scope | State |
 | --- | --- | --- |
 | CPAN 314 baseline | Collaborative planner (everything under "Features" below) | Carried forward, verified working |
-| **Phase I** (this submission) | Verify the core planner end to end, document and update the data model, add the destination POI dataset the suggestion engine will read | **Complete** |
-| Phase II | RecommendationEngine, `calculateScore()`, POI enrichment, suggestion UI, dismiss + adjustable weights | Not started |
-| Phase III | Accessibility pass, print stylesheet, whole-cent split reconciliation, scoring tests, performance tuning | Not started |
+| Phase I | Verify the core planner end to end, document and update the data model, add the destination POI dataset | Complete |
+| **Phase II** | Smart Attraction Suggestions: scoring engine, POI enrichment, suggestion panel in the itinerary with Add to itinerary, dismiss and adjustable weights | **Complete** |
+| Phase III | Accessibility pass, print stylesheet, whole-cent split reconciliation, scoring edge-case tests, performance tuning | Not started |
+
+### What changed in Phase II
+- **Recommendation engine** (`server/src/services/recommendation/`): finds the free time between scheduled attractions and ranks nearby points of interest by a weighted score of popularity, cost, visit duration and detour. See [`docs/SCORING.md`](docs/SCORING.md).
+- **POI enrichment:** curated Tokyo data plus places from OpenStreetMap / Overpass (cached, with a time limit and fallback), so any destination can get suggestions.
+- **Suggestion panel** in the itinerary: ranked cards with a reason, score, visit time, cost and detour; **Add to itinerary**, **Dismiss**, and **weight sliders** that re-rank the list. Weights and dismissals are saved per trip and shared by the group.
+- **Testing:** 219 tests (up from 104), server coverage reports, a written [test plan](docs/TEST_PLAN.md) and [evidence](docs/TESTING.md).
+- **Progress notes:** [`docs/PROGRESS_NOTES.md`](docs/PROGRESS_NOTES.md).
+
+### What changed in Phase II
+- **Recommendation engine** (`server/src/services/recommendation/`): finds the free time between scheduled attractions and ranks nearby points of interest by a weighted score of popularity, cost, visit duration and detour. See [`docs/SCORING.md`](docs/SCORING.md).
+- **Suggestions API:** `GET /api/trips/:tripId/suggestions` with adjustable weights, per-day limit and dismissed stops.
+- **Testing:** 182 tests (up from 104), server coverage reports, and a written [test plan](docs/TEST_PLAN.md) with [evidence](docs/TESTING.md).
+- **Progress notes:** [`docs/PROGRESS_NOTES.md`](docs/PROGRESS_NOTES.md).
 
 ### What changed in Phase I
 - **POI dataset:** 111 curated Tokyo points of interest in `server/src/data/pois/tokyo.json`, with a read-only, destination-scoped loader (`server/src/db/pois.js`). More destinations are added by dropping in another JSON file.
@@ -33,6 +46,7 @@ A collaborative web application that lets a small travel group plan a trip toget
 - **Attractions, restaurants, transportation:** full add / edit / delete for each.
 - **Budget tracker:** estimated vs. actual expenses, category totals, one-click even split, per-member owed / paid / balance.
 - **Full itinerary view:** a read-only, chronological summary of the whole trip with a print / save-as-PDF button. Items outside the trip dates are listed as "not yet scheduled".
+- **Smart Attraction Suggestions:** for every trip day, the engine looks at the attractions the group has scheduled, finds the free time between them, and suggests nearby points of interest that fit, each with a score and a reason such as *"12 minutes off your route between Senso-ji Temple and teamLab Planets"*. Each card has **Add to itinerary** and **Dismiss**; stops already planned or dismissed are never suggested, and sliders set the relative weight of popularity, cost, duration and detour for the trip.
 - **Near real-time collaboration:** the workspace re-fetches shared data every 20 seconds and shows who last changed what and when (polling, not WebSockets — agreed with the stakeholder).
 - **Accessible, responsive UI** (desktop and mobile).
 
@@ -77,6 +91,7 @@ This replaces any existing data with three demo accounts and a fully populated f
 | `npm run seed` | Loads the demo trip (replaces existing data) |
 | `npm run reset` | Empties the data file |
 | `npm test` | Runs the server and client test suites |
+| `npm run test:coverage --workspace server` | Server tests with a coverage report |
 | `npm run test:server` / `npm run test:client` | Run one suite |
 | `npm run build` | Production build of the client |
 
@@ -98,6 +113,21 @@ This exact flow is also run automatically by `server/tests/primaryFlow.test.js`.
 
 ---
 
+## Suggestions API
+
+All routes are under `/api/trips/:tripId/suggestions` and need a signed-in trip member.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /?date=YYYY-MM-DD` | Ranked suggestions for one day, each with `score`, `reason`, `detourMinutes`, `startTime`, `estimatedCost` and the individual factor scores |
+| `GET /preferences` | The trip's saved weights and dismissed suggestions |
+| `PUT /weights` | Save weights `{ popularity, cost, duration, detour }` (relative, non-negative, not all zero) |
+| `POST /dismiss` | Dismiss a suggestion `{ suggestionId }` for the whole group |
+
+The formula, travel-time model, a worked example and the response fields are in [`docs/SCORING.md`](docs/SCORING.md).
+
+---
+
 ## Architecture
 
 ```
@@ -107,6 +137,8 @@ server/   Node.js + Express API
   src/db/store.js  JSON document store: find / findOne / insert / update / remove
   src/db/index.js  Typed collections + helpers (hashing, hydrating trips)
   src/db/pois.js   Read-only POI dataset loader (destination-scoped)
+  src/services/recommendation/  Suggestion engine: geo, weights, scoring, engine, POI pool
+  src/services/poiService.js    Overpass / Nominatim POI enrichment (cached, with fallback)
   src/data/pois/   Curated POI datasets, one JSON file per destination
   src/utils/       Budget maths, time-conflict detection, helpers
   tests/           Vitest + Supertest suites
@@ -125,18 +157,18 @@ docs/     Data model and testing evidence
 npm test
 ```
 
-Server tests cover accounts, trips and invitations, itinerary conflicts, all four CRUD modules, budget maths, the JSON store, the POI dataset and a full primary-flow acceptance test. Client tests cover the create-trip form and dialogs. Results and how to reproduce them: [`docs/TESTING.md`](docs/TESTING.md).
+219 automated tests: unit tests for the scoring engine, the POI adapter and enrichment service (with a scripted network), budget maths, conflict rules, the data store and the POI dataset; integration tests through the real Express app for accounts, trips, every CRUD module and the suggestions API; a full primary-flow acceptance test; and component tests for the browser forms. The plan is in [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) and the results, coverage and performance evidence are in [`docs/TESTING.md`](docs/TESTING.md).
 
 ---
 
 ## Team
 
-| Member | Phase I focus |
+| Member | Phase II focus |
 | --- | --- |
-| Henry Dineros | Repository and data-store work; POI dataset; attractions / restaurants / transport / budget CRUD |
-| Han-Pin Hung | Trip CRUD, invitations and member roles; Stakeholder Review Report 1 |
-| Jonathan Pipim | Itinerary builder and conflict detection; POI preparation |
-| Vedant Patel | Authentication; budget CRUD; scoring and accessibility preparation |
+| Henry Dineros | RecommendationEngine, scoring, generate/rank logic, POI pool and tests |
+| Han-Pin Hung | Suggestion panel, Add to itinerary, Stakeholder Review Reports |
+| Jonathan Pipim | POI enrichment (Overpass), dismiss and weighting controls, core-flow tests |
+| Vedant Patel | Scoring calculation co-owner; accessibility and documentation |
 
 ## Documents
 
