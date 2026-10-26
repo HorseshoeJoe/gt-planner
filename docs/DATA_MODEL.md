@@ -23,6 +23,7 @@ Every document has `_id`, `createdAt`, `updatedAt`. Relationships are stored as 
 
 ### trips
 `title`, `destination`, `startDate`, `endDate` (`YYYY-MM-DD`), `description`, `createdBy` → users, `inviteCode` (8 chars), `members[]`, `lastActivityAt`, `lastActivityBy` → users, `lastActivityLabel`
+**New in Phase II:** `suggestionWeights` (`{ popularity, cost, duration, detour }`, relative non-negative numbers saved from the suggestion panel; absent means equal weights) and `dismissedSuggestionIds` (array of POI ids the group has dismissed).
 
 `members[]` entries: `_id`, `userId` → users, `role` (`admin` | `member`), `status` (`pending` | `joined`), `invitedAt`, `joinedAt`. Maximum 20 per trip.
 
@@ -55,7 +56,7 @@ File shape: `{ destination, country, aliases[], currency, source, pois[] }`
 
 Each POI: `id` (`<destination>-<slug>`), `name`, `category`, `area`, `latitude`, `longitude`, `popularity` (1–5), `entryFeeJPY` (0 = free), `costTier` (0 free, 1 ≤ ¥1,000, 2 ≤ ¥3,000, 3 above), `avgVisitMinutes`.
 
-These map onto the four scoring factors in proposal section 3.1: popularity → `popularity`; cost → `entryFeeJPY` / `costTier`; average visit duration → `avgVisitMinutes`; detour cost → `latitude` / `longitude` compared with the trip's located attractions.
+The POI dataset is read by the RecommendationEngine (`server/src/services/recommendation/`), together with places from the Overpass enrichment service (`server/src/services/poiService.js`, cached in memory, not stored). The engine writes nothing: suggestions are computed on request from the trip's attractions, itinerary, saved weights and dismissed ids plus these POIs, so no new collection was needed for Phase II; the weights and dismissals live on the trip document. These map onto the four scoring factors in proposal section 3.1: popularity → `popularity`; cost → `entryFeeJPY` / `costTier`; average visit duration → `avgVisitMinutes`; detour cost → `latitude` / `longitude` compared with the trip's located attractions.
 
 Currently available: Tokyo (111 POIs). The dataset was hand-curated; coordinates and fees are approximate and are to be verified by the Phase II Overpass enrichment.
 
