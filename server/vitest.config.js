@@ -6,5 +6,12 @@ export default defineConfig({
     // the suites run one after another rather than in parallel.
     fileParallelism: false,
     setupFiles: ['./tests/setup.js'],
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.js'],
+      exclude: ['src/index.js', 'src/seed.js', 'src/reset.js'],
+      reporter: ['text', 'text-summary', 'html'],
+      reportsDirectory: './coverage',
+    },
   },
 });
