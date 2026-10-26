@@ -8,10 +8,11 @@
 
 export const FACTORS = ['popularity', 'cost', 'duration', 'detour'];
 
+/** Equal weights: no factor is favoured until the group says otherwise. */
 export const DEFAULT_WEIGHTS = Object.freeze({
-  popularity: 0.35,
-  cost: 0.2,
-  duration: 0.2,
+  popularity: 0.25,
+  cost: 0.25,
+  duration: 0.25,
   detour: 0.25,
 });
 

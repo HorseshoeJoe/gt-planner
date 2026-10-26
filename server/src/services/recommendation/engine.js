@@ -1,7 +1,7 @@
 import { poisForDestination } from '../../db/pois.js';
 import { dateRange } from '../../utils/helpers.js';
 import { toMinutes } from '../../utils/timeConflicts.js';
-import { hasCoordinates, detourMinutes as calcDetour } from './geo.js';
+import { hasCoordinates, detourMinutes as calcDetour, travelMinutesBetween } from './geo.js';
 import { calculateScore, MAX_DETOUR_MINUTES } from './scoring.js';
 import { DEFAULT_WEIGHTS } from './weights.js';
 
@@ -41,7 +41,7 @@ export function rankSuggestions(suggestions, limit = Infinity) {
   return [...suggestions]
     .sort((a, b) =>
       b.score - a.score ||
-      a.detourMinutes - b.detourMinutes ||
+      (a.detourMinutes ?? 0) - (b.detourMinutes ?? 0) ||
       b.poi.popularity - a.poi.popularity ||
       a.poi.name.localeCompare(b.poi.name))
     .slice(0, limit);
@@ -106,6 +106,16 @@ export function buildDayGaps(dayAttractions, dayActivities = []) {
   return { anchors, gaps: gaps.filter((g) => g.availableMinutes > 0) };
 }
 
+/** 615 -> "10:15". Returns null when the time would fall outside the day. */
+export function formatClock(totalMinutes) {
+  if (!Number.isFinite(totalMinutes) || totalMinutes < 0 || totalMinutes >= 24 * 60) return null;
+  const h = String(Math.floor(totalMinutes / 60)).padStart(2, '0');
+  const m = String(Math.round(totalMinutes % 60)).padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+const FALLBACK_REASON = 'Popular attraction that may fit this itinerary day.';
+
 const round1 = (n) => Math.round(n * 10) / 10;
 const round3 = (n) => Math.round(n * 1000) / 1000;
 
@@ -125,6 +135,10 @@ export class RecommendationEngine {
    * @param {object} [input.weights]         normalised weights (default weights if omitted)
    * @param {string[]} [input.dismissedPoiIds] POIs the group has dismissed
    * @param {number} [input.limitPerDay]
+   * @param {object[]} [input.pois]  candidate pool to use instead of the provider
+   *   (for example the curated dataset merged with Overpass results)
+   * @param {boolean} [input.anchorlessFallback] on days with no located attraction,
+   *   rank by popularity, cost and duration alone instead of returning nothing
    */
   generateSuggestions({
     trip,
@@ -133,9 +147,11 @@ export class RecommendationEngine {
     weights = DEFAULT_WEIGHTS,
     dismissedPoiIds = [],
     limitPerDay = DEFAULT_LIMIT_PER_DAY,
+    pois = null,
+    anchorlessFallback = false,
   }) {
     const startedAt = process.hrtime.bigint();
-    const pool = this.poiProvider(trip.destination).filter(hasCoordinates);
+    const pool = (pois ?? this.poiProvider(trip.destination)).filter(hasCoordinates);
 
     // Anything the group already planned (as an attraction or an activity), or
     // has dismissed, is never suggested.
@@ -154,7 +170,28 @@ export class RecommendationEngine {
       const dayAttractions = attractions.filter((a) => a.visitDate === date);
       const { anchors, gaps } = buildDayGaps(dayAttractions, activitiesByDate[date] || []);
 
-      if (anchors.length === 0) return { date, suggestions: [], note: NO_ANCHOR_NOTE };
+      if (anchors.length === 0) {
+        if (!anchorlessFallback) return { date, suggestions: [], note: NO_ANCHOR_NOTE };
+
+        // Nothing to measure a detour from: rank on the other three factors,
+        // treating every stop as having the same (zero) detour.
+        const general = candidates.flatMap((poi) => {
+          const result = calculateScore(poi, { detourMinutes: 0, availableMinutes: DEFAULT_GAP_MINUTES }, weights);
+          if (!result.fits) return [];
+          return [{
+            poi,
+            score: round1(result.score),
+            factors: Object.fromEntries(Object.entries(result.factors).map(([k, v]) => [k, round3(v)])),
+            detourMinutes: null,
+            availableMinutes: DEFAULT_GAP_MINUTES,
+            gap: null,
+            suggestedStartTime: null,
+            fallback: true,
+            reason: FALLBACK_REASON,
+          }];
+        });
+        return { date, suggestions: rankSuggestions(general, limitPerDay), note: NO_ANCHOR_NOTE };
+      }
 
       // Each POI is suggested once per day, in the gap where it scores best.
       const best = new Map();
@@ -179,6 +216,9 @@ export class RecommendationEngine {
               from: { _id: gap.from._id, name: gap.from.name },
               to: gap.to ? { _id: gap.to._id, name: gap.to.name } : null,
             },
+            suggestedStartTime: gap.from.slot
+              ? formatClock(Math.round(gap.from.slot.end + travelMinutesBetween(gap.from, poi)))
+              : null,
             reason: describeReason(detour, gap),
           });
         }

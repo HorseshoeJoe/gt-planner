@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  RecommendationEngine, rankSuggestions, buildDayGaps, describeReason, normaliseName,
+  RecommendationEngine, rankSuggestions, buildDayGaps, describeReason, normaliseName, formatClock,
   DEFAULT_GAP_MINUTES, DAY_END_MINUTES,
 } from '../src/services/recommendation/engine.js';
 import { normaliseWeights } from '../src/services/recommendation/weights.js';
@@ -201,6 +201,82 @@ describe('generateSuggestions', () => {
   it('skips POIs that have no coordinates', () => {
     const custom = new RecommendationEngine({ poiProvider: () => [{ id: 'bad', name: 'Nowhere', popularity: 5, costTier: 0, avgVisitMinutes: 30 }] });
     expect(custom.generateSuggestions({ trip, attractions: [sensoji], activitiesByDate: {} }).meta.poolSize).toBe(0);
+  });
+});
+
+describe('formatClock', () => {
+  it('formats minutes after midnight as HH:MM', () => {
+    expect(formatClock(0)).toBe('00:00');
+    expect(formatClock(615)).toBe('10:15');
+    expect(formatClock(23 * 60 + 59)).toBe('23:59');
+  });
+  it('returns null outside the day or for bad input', () => {
+    expect(formatClock(-1)).toBeNull();
+    expect(formatClock(24 * 60)).toBeNull();
+    expect(formatClock(NaN)).toBeNull();
+  });
+});
+
+describe('generateSuggestions: suggested start time', () => {
+  it('starts a stop after the previous attraction ends plus the travel to it', () => {
+    const s = day(run()).suggestions[0];
+    expect(s.suggestedStartTime).toMatch(/^\d{2}:\d{2}$/);
+    expect(s.suggestedStartTime > '11:00').toBe(true);   // Senso-ji ends 11:00
+  });
+
+  it('has no suggested start when the previous attraction has no scheduled time', () => {
+    const r = run({ activitiesByDate: {} });
+    expect(day(r).suggestions.every((s) => s.suggestedStartTime === null)).toBe(true);
+  });
+});
+
+describe('generateSuggestions: candidate pool override', () => {
+  const only = [{ id: 'z-1', name: 'Only Place', category: 'park', popularity: 4, costTier: 0, avgVisitMinutes: 60, latitude: 35.70, longitude: 139.78 }];
+
+  it('uses a supplied pool instead of the provider', () => {
+    const r = run({ pois: only });
+    expect(r.meta.poolSize).toBe(1);
+    expect(day(r).suggestions.map((s) => s.poi.id)).toEqual(['z-1']);
+  });
+
+  it('treats an empty supplied pool as empty, not as "use the provider"', () => {
+    expect(run({ pois: [] }).meta.poolSize).toBe(0);
+  });
+});
+
+describe('generateSuggestions: days with no located attraction', () => {
+  it('can fall back to ranking on popularity, cost and duration', () => {
+    const r = engine.generateSuggestions({ trip, attractions: [], anchorlessFallback: true });
+    const d = day(r, '2026-09-14');
+    expect(d.suggestions.length).toBeGreaterThan(0);
+    expect(d.suggestions.every((s) => s.fallback === true && s.gap === null && s.detourMinutes === null)).toBe(true);
+    expect(d.suggestions[0].reason).toMatch(/popular attraction/i);
+    expect(d.note).toMatch(/add an attraction/i);
+    const scores = d.suggestions.map((s) => s.score);
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
+  });
+
+  it('still leaves out planned and dismissed stops', () => {
+    const r = engine.generateSuggestions({
+      trip, attractions: [{ _id: 'x', name: 'Ueno Park', visitDate: '2026-09-16' }],
+      dismissedPoiIds: ['tokyo-ginza'], anchorlessFallback: true, limitPerDay: 50,
+    });
+    const names = day(r, '2026-09-14').suggestions.map((s) => s.poi.name);
+    expect(names).not.toContain('Ueno Park');
+    expect(names).not.toContain('Ginza');
+  });
+
+  it('is off by default', () => {
+    expect(day(engine.generateSuggestions({ trip, attractions: [] }), '2026-09-14').suggestions).toEqual([]);
+  });
+});
+
+describe('rankSuggestions with no detour', () => {
+  const s = (name, score, detourMinutes) => ({ score, detourMinutes, poi: { name, popularity: 4 } });
+
+  it('ranks by score, then name, when detour is null (no NaN ordering)', () => {
+    const ranked = rankSuggestions([s('Zed', 70, null), s('Alpha', 70, null), s('Top', 90, null)]);
+    expect(ranked.map((x) => x.poi.name)).toEqual(['Top', 'Alpha', 'Zed']);
   });
 });
 
