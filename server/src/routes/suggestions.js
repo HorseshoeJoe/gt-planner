@@ -14,8 +14,11 @@ import {
 import { touchTrip } from '../utils/helpers.js';
 
 import {
-  fetchPOIsForDestination,
-} from '../services/poiService.js';
+  RecommendationEngine,
+  normaliseWeights,
+} from '../services/recommendation/index.js';
+
+import { loadPoiPool } from '../services/recommendation/poiPool.js';
 
 const router = express.Router({
   mergeParams: true,
@@ -33,217 +36,10 @@ const DEFAULT_WEIGHTS = {
   detour: 25,
 };
 
-/**
- * Haversine distance.
- * Returns distance in kilometres.
- */
-function distanceKm(
-  lat1,
-  lon1,
-  lat2,
-  lon2,
-) {
-  const values = [
-    lat1,
-    lon1,
-    lat2,
-    lon2,
-  ].map(Number);
+const engine = new RecommendationEngine();
 
-  if (
-    values.some(
-      (value) =>
-        !Number.isFinite(value),
-    )
-  ) {
-    return null;
-  }
-
-  const [
-    latitude1,
-    longitude1,
-    latitude2,
-    longitude2,
-  ] = values;
-
-  const earthRadiusKm = 6371;
-
-  const toRadians =
-    (degrees) =>
-      (degrees * Math.PI) / 180;
-
-  const dLat =
-    toRadians(
-      latitude2 - latitude1,
-    );
-
-  const dLon =
-    toRadians(
-      longitude2 - longitude1,
-    );
-
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(
-      toRadians(latitude1),
-    ) *
-      Math.cos(
-        toRadians(latitude2),
-      ) *
-      Math.sin(dLon / 2) ** 2;
-
-  const c =
-    2 *
-    Math.atan2(
-      Math.sqrt(a),
-      Math.sqrt(1 - a),
-    );
-
-  return earthRadiusKm * c;
-}
-
-/**
- * Shorter detour = better score.
- */
-function detourScore(distance) {
-  if (
-    distance === null ||
-    !Number.isFinite(distance)
-  ) {
-    return 0.5;
-  }
-
-  if (distance <= 1) return 1;
-  if (distance <= 2) return 0.9;
-  if (distance <= 5) return 0.75;
-  if (distance <= 10) return 0.5;
-  if (distance <= 20) return 0.25;
-
-  return 0.1;
-}
-
-/**
- * Lower cost = better score.
- */
-function costScore(cost) {
-  const value = Number(cost);
-
-  if (!Number.isFinite(value)) {
-    return 0.5;
-  }
-
-  if (value <= 0) return 1;
-  if (value <= 10) return 0.9;
-  if (value <= 20) return 0.75;
-  if (value <= 40) return 0.5;
-  if (value <= 80) return 0.25;
-
-  return 0.1;
-}
-
-/**
- * Shorter visit durations are easier
- * to fit into an existing itinerary.
- */
-function durationScore(minutes) {
-  const value = Number(minutes);
-
-  if (!Number.isFinite(value)) {
-    return 0.5;
-  }
-
-  if (value <= 60) return 1;
-  if (value <= 90) return 0.85;
-  if (value <= 120) return 0.7;
-  if (value <= 180) return 0.45;
-
-  return 0.2;
-}
-
-/**
- * Normalize stored weight values.
- */
-function normalizeWeights(weights) {
-  const source = {
-    ...DEFAULT_WEIGHTS,
-    ...(weights || {}),
-  };
-
-  const total =
-    Number(
-      source.popularity || 0,
-    ) +
-    Number(
-      source.cost || 0,
-    ) +
-    Number(
-      source.duration || 0,
-    ) +
-    Number(
-      source.detour || 0,
-    );
-
-  if (!total) {
-    return {
-      popularity: 0.25,
-      cost: 0.25,
-      duration: 0.25,
-      detour: 0.25,
-    };
-  }
-
-  return {
-    popularity:
-      Number(
-        source.popularity || 0,
-      ) / total,
-
-    cost:
-      Number(
-        source.cost || 0,
-      ) / total,
-
-    duration:
-      Number(
-        source.duration || 0,
-      ) / total,
-
-    detour:
-      Number(
-        source.detour || 0,
-      ) / total,
-  };
-}
-
-/**
- * Find the distance from a POI
- * to the nearest saved attraction.
- */
-function nearestDistance(
-  poi,
-  knownAttractions,
-) {
-  const distances =
-    knownAttractions
-      .map((attraction) =>
-        distanceKm(
-          poi.latitude,
-          poi.longitude,
-          attraction.latitude,
-          attraction.longitude,
-        ),
-      )
-      .filter(
-        (value) =>
-          Number.isFinite(value),
-      );
-
-  if (!distances.length) {
-    return null;
-  }
-
-  return Math.min(...distances);
-}
+/** How many ranked suggestions are returned for the selected day. */
+const SUGGESTIONS_PER_DAY = 10;
 
 /**
  * Produce a simple suggested start time.
@@ -309,277 +105,108 @@ function suggestedStartTime(day) {
   )}`;
 }
 
+/** Whole-number cost shown by the UI: curated POIs list entry fees in yen. */
+function describeCost(poi) {
+  if (poi.source !== 'curated') return poi.entryFee ?? 0;
+  return poi.entryFeeJPY > 0 ? `\u00a5${poi.entryFeeJPY.toLocaleString('en-US')}` : 'Free';
+}
+
+/**
+ * Converts an engine suggestion into the shape the suggestion panel reads,
+ * keeping the engine's own detail (factors, gap, availableMinutes) alongside.
+ */
+function toApiSuggestion(suggestion, fallbackStartTime) {
+  const { poi } = suggestion;
+  return {
+    id: String(poi.id),
+    osmId: String(poi.osmId ?? poi.id),
+    poiId: poi.id,
+    name: poi.name,
+    latitude: poi.latitude,
+    longitude: poi.longitude,
+    category: poi.category,
+    website: poi.website ?? null,
+    estimatedCost: describeCost(poi),
+    estimatedDurationMinutes: poi.avgVisitMinutes,
+    popularityScore: Math.round(((poi.popularity - 1) / 4) * 100) / 100,
+    detourMinutes: suggestion.detourMinutes,
+    score: suggestion.score,
+    factors: suggestion.factors,
+    gap: suggestion.gap,
+    availableMinutes: suggestion.availableMinutes,
+    source: poi.source,
+    startTime: suggestion.suggestedStartTime || fallbackStartTime,
+    reason: suggestion.reason,
+  };
+}
+
 /**
  * GET /api/trips/:tripId/suggestions?date=YYYY-MM-DD
  *
- * Generate and rank Smart Attraction Suggestions.
+ * Smart Attraction Suggestions for one day. The RecommendationEngine finds the
+ * free time between the day's scheduled attractions and ranks nearby points of
+ * interest by the trip's saved weights (popularity, cost, duration, detour).
+ * Dismissed suggestions are left out. Details of the scoring are in
+ * docs/SCORING.md.
  */
 router.get(
   '/',
   async (req, res, next) => {
     try {
-      /*
-       * Important:
-       * reload the trip directly from the store.
-       *
-       * req.trip was loaded earlier by middleware,
-       * but suggestion preferences/dismissed IDs may
-       * have changed after that request.
-       */
-      const trip =
-        Trips.findById(
-          req.trip._id,
-        );
+      // Reload the trip: weights and dismissed ids may have changed since the
+      // membership middleware loaded req.trip.
+      const trip = Trips.findById(req.trip._id);
 
       if (!trip) {
-        return res
-          .status(404)
-          .json({
-            message:
-              'Trip not found.',
-          });
+        return res.status(404).json({ message: 'Trip not found.' });
       }
 
-      const date =
-        req.query.date;
+      const date = req.query.date;
 
       if (!date) {
-        return res
-          .status(400)
-          .json({
-            message:
-              'date query parameter is required',
-          });
+        return res.status(400).json({ message: 'date query parameter is required' });
       }
 
-      const day =
-        Itineraries.findOne(
-          (item) =>
-            item.tripId ===
-              trip._id &&
-            item.date === date,
-        ) || {
-          date,
-          activities: [],
-        };
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+        return res.status(400).json({ message: 'date must be in YYYY-MM-DD format.' });
+      }
 
-      const savedAttractions =
-        Attractions.find(
-          (item) =>
-            item.tripId ===
-            trip._id,
-        );
+      const day = Itineraries.findOne(
+        (item) => item.tripId === trip._id && item.date === date,
+      ) || { date, activities: [] };
 
-      /*
-       * Always convert dismissed IDs to strings
-       * because OSM IDs may be numbers or strings.
-       */
-      const dismissedIds =
-        new Set(
-          (
-            trip.dismissedSuggestionIds ||
-            []
-          ).map(String),
-        );
+      let weights;
+      try {
+        weights = normaliseWeights(trip.suggestionWeights || DEFAULT_WEIGHTS);
+      } catch {
+        weights = normaliseWeights(DEFAULT_WEIGHTS); // ignore unusable stored weights
+      }
 
-      /*
-       * Avoid recommending items already saved
-       * or already added to the selected day.
-       */
-      const existingNames =
-        new Set(
-          [
-            ...savedAttractions.map(
-              (item) =>
-                item.name,
-            ),
+      const { pois, sources } = await loadPoiPool(trip.destination);
 
-            ...(
-              day.activities ||
-              []
-            ).map(
-              (item) =>
-                item.title,
-            ),
-          ]
-            .filter(Boolean)
-            .map(
-              (value) =>
-                String(value)
-                  .trim()
-                  .toLowerCase(),
-            ),
-        );
+      const result = engine.generateSuggestions({
+        trip: { destination: trip.destination, startDate: date, endDate: date },
+        attractions: Attractions.find((item) => item.tripId === trip._id),
+        activitiesByDate: { [date]: day.activities || [] },
+        weights,
+        dismissedPoiIds: (trip.dismissedSuggestionIds || []).map(String),
+        limitPerDay: SUGGESTIONS_PER_DAY,
+        pois,
+        anchorlessFallback: true,
+      });
 
-      const pois =
-        await fetchPOIsForDestination(
-          trip.destination,
-        );
-
-      const weights =
-        normalizeWeights(
-          trip.suggestionWeights,
-        );
-
-      const startTime =
-        suggestedStartTime(
-          day,
-        );
-
-      const suggestions =
-        pois
-          .filter((poi) => {
-            const id =
-              String(
-                poi.osmId,
-              );
-
-            const name =
-              String(
-                poi.name || '',
-              )
-                .trim()
-                .toLowerCase();
-
-            /*
-             * This is the key dismissed check.
-             */
-            if (
-              dismissedIds.has(
-                id,
-              )
-            ) {
-              return false;
-            }
-
-            if (
-              existingNames.has(
-                name,
-              )
-            ) {
-              return false;
-            }
-
-            return true;
-          })
-          .map((poi) => {
-            const distance =
-              nearestDistance(
-                poi,
-                savedAttractions,
-              );
-
-            const popularity =
-              Number(
-                poi.popularityScore ??
-                  0.5,
-              );
-
-            const cost =
-              costScore(
-                poi.estimatedCost,
-              );
-
-            const duration =
-              durationScore(
-                poi.estimatedDurationMinutes,
-              );
-
-            const detour =
-              detourScore(
-                distance,
-              );
-
-            const score =
-              popularity *
-                weights.popularity +
-              cost *
-                weights.cost +
-              duration *
-                weights.duration +
-              detour *
-                weights.detour;
-
-            const detourMinutes =
-              distance === null
-                ? null
-                : Math.round(
-                    distance *
-                      8,
-                  );
-
-            return {
-              id:
-                String(
-                  poi.osmId,
-                ),
-
-              osmId:
-                String(
-                  poi.osmId,
-                ),
-
-              name:
-                poi.name,
-
-              latitude:
-                poi.latitude,
-
-              longitude:
-                poi.longitude,
-
-              category:
-                poi.category,
-
-              website:
-                poi.website,
-
-              estimatedCost:
-                poi.estimatedCost,
-
-              estimatedDurationMinutes:
-                poi.estimatedDurationMinutes,
-
-              popularityScore:
-                popularity,
-
-              detourKm:
-                distance,
-
-              detourMinutes,
-
-              score,
-
-              startTime,
-
-              reason:
-                detourMinutes !==
-                null
-                  ? `${detourMinutes} min estimated detour from a saved attraction.`
-                  : 'Popular attraction that may fit this itinerary day.',
-            };
-          })
-          .sort(
-            (a, b) =>
-              b.score -
-              a.score,
-          )
-          .slice(
-            0,
-            10,
-          );
+      const [today] = result.days;
+      const fallbackStartTime = suggestedStartTime(day);
 
       return res.json({
         date,
-
-        weights:
-          trip.suggestionWeights ||
-          DEFAULT_WEIGHTS,
-
-        suggestions,
+        weights: trip.suggestionWeights || DEFAULT_WEIGHTS,
+        suggestions: today.suggestions.map((item) => toApiSuggestion(item, fallbackStartTime)),
+        ...(today.note ? { note: today.note } : {}),
+        meta: { ...result.meta, sources },
       });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   },
 );
