@@ -90,6 +90,13 @@ async function run() {
     rating: 5, visitDate: '2026-09-15', mapLink: 'https://maps.google.com/?q=Senso-ji', createdBy: hanpin._id,
     latitude: 35.7148, longitude: 139.7967, poiId: 'tokyo-senso-ji-temple',
   });
+  // A second located attraction on the same day gives the suggestion engine a
+  // gap to work with (Senso-ji ends 11:00, teamLab starts 15:00).
+  Attractions.insert({
+    tripId: trip._id, name: 'teamLab Planets', description: 'Immersive digital art museum.',
+    rating: 5, visitDate: '2026-09-15', mapLink: null, createdBy: henry._id,
+    latitude: 35.6492, longitude: 139.7896, poiId: 'tokyo-teamlab-planets',
+  });
   Attractions.insert({
     tripId: trip._id, name: 'Shibuya Sky', description: 'Rooftop observation deck.',
     rating: 4, visitDate: null, mapLink: null, createdBy: henry._id,
