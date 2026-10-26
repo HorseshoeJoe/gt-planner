@@ -45,20 +45,36 @@ export function adaptOverpassPoi(raw) {
   };
 }
 
+/** How long a request waits for Overpass before using the curated data alone. */
+export const OVERPASS_TIMEOUT_MS = 4000;
+
+function withTimeout(promise, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Overpass enrichment timed out.')), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
 /**
  * @param {string} destination
- * @param {{fetchOverpass?: Function}} [options] inject a fetcher for tests
+ * @param {{fetchOverpass?: Function, timeoutMs?: number}} [options] inject a fetcher / timeout for tests
  * @returns {Promise<{pois: object[], sources: {curated: number, overpass: number}}>}
  */
-export async function loadPoiPool(destination, { fetchOverpass = fetchPOIsForDestination } = {}) {
+export async function loadPoiPool(
+  destination,
+  { fetchOverpass = fetchPOIsForDestination, timeoutMs = OVERPASS_TIMEOUT_MS } = {},
+) {
   const curated = poisForDestination(destination).map((poi) => ({ ...poi, source: 'curated' }));
   const known = new Set(curated.map((poi) => normaliseName(poi.name)));
 
   let extra = [];
   try {
-    extra = (await fetchOverpass(destination)) || [];
+    extra = (await withTimeout(Promise.resolve(fetchOverpass(destination)), timeoutMs)) || [];
   } catch {
-    extra = []; // enrichment is optional; never fail a request because of it
+    extra = []; // enrichment is optional; never fail or stall a request because of it
   }
 
   const seen = new Set();

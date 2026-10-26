@@ -57,6 +57,15 @@ describe('loadPoiPool', () => {
     expect(pois.length).toBeGreaterThanOrEqual(100);
   });
 
+  it('does not wait forever for a slow Overpass', async () => {
+    const never = () => new Promise(() => {});
+    const started = Date.now();
+    const { pois, sources } = await loadPoiPool('Tokyo', { fetchOverpass: never, timeoutMs: 30 });
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(sources.overpass).toBe(0);
+    expect(pois.length).toBeGreaterThanOrEqual(100);
+  });
+
   it('uses Overpass alone for a destination with no curated dataset', async () => {
     const { pois, sources } = await loadPoiPool('Atlantis', { fetchOverpass: async () => [raw()] });
     expect(sources).toEqual({ curated: 0, overpass: 1 });
