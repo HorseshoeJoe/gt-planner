@@ -89,3 +89,31 @@ The proposal requires suggestions for a day's itinerary in under 2 seconds again
 - Distances are straight-line, not routed.
 - Only Tokyo has a curated dataset; other destinations rely on Overpass.
 - Demand on the free public Overpass servers can make the enrichment slow or unavailable; the curated data and the 4-second limit keep suggestions working.
+
+---
+
+## Phase III – Edge-case coverage and performance confirmation (Henry)
+
+### Additional scoring edge cases covered
+
+The Phase III test suite (`recommendation.scoring.test.js`) now includes explicit coverage for:
+
+- Non-numeric, negative, and out-of-range popularity and costTier values (clamped or treated as mid-tier).
+- Zero, negative, and extreme visit durations and available free time.
+- Fractional detours and values exactly at the 60-minute boundary.
+- Completely empty POI objects and missing context.
+- Extreme weight combinations (including zero weight on individual factors).
+- Score always remaining inside [0, 100] under adversarial inputs.
+- Deterministic / stable scoring under repeated calls (no floating-point drift).
+
+These cases sit on top of the Phase II factor and ranking tests and give the marker confidence that the weighting formula behaves safely at the boundaries described in proposal section 3.1.
+
+### Performance
+
+No algorithmic changes were required. Existing automated performance tests (real 111-POI Tokyo pool and a synthetic 1 000-POI pool across a 7-day trip) continue to pass well under the 2-second NFR. Median engine time remains on the order of a few milliseconds; the only external latency is the optional Overpass enrichment, which is already capped at 4 seconds and cached.
+
+Page-load target (< 3 s) is outside the recommendation engine itself and is satisfied by the existing React + Vite setup plus the lightweight JSON document store.
+
+### Final scoring write-up status
+
+This document now constitutes the final Suggestion-Scoring Write-up required by the Phase III Development Report deliverable. The formula, factor mappings, travel-time model, and worked example are unchanged from Phase II; Phase III only added boundary robustness and confirmed the performance numbers.

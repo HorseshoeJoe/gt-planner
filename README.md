@@ -15,7 +15,7 @@ A collaborative web application that lets a small travel group plan a trip toget
 | CPAN 314 baseline | Collaborative planner (everything under "Features" below) | Carried forward, verified working |
 | Phase I | Verify the core planner end to end, document and update the data model, add the destination POI dataset | Complete |
 | **Phase II** | Smart Attraction Suggestions: scoring engine, POI enrichment, suggestion panel in the itinerary with Add to itinerary, dismiss and adjustable weights | **Complete** |
-| Phase III | Accessibility pass, print stylesheet, whole-cent split reconciliation, scoring edge-case tests, performance tuning | Not started |
+| Phase III | Accessibility pass, print stylesheet, whole-cent split reconciliation, scoring edge-case tests, performance tuning | In progress (Henry: scoring edge-case tests + performance confirmation complete) |
 
 ### What changed in Phase II
 - **Recommendation engine** (`server/src/services/recommendation/`): finds the free time between scheduled attractions and ranks nearby points of interest by a weighted score of popularity, cost, visit duration and detour. See [`docs/SCORING.md`](docs/SCORING.md).

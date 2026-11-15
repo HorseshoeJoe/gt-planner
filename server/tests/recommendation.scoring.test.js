@@ -16,11 +16,27 @@ describe('scoring factors', () => {
     expect(popularityFactor({})).toBe(0);                  // missing
   });
 
+  it('popularity handles extreme and non-numeric values', () => {
+    expect(popularityFactor({ popularity: 0 })).toBe(0);
+    expect(popularityFactor({ popularity: -10 })).toBe(0);
+    expect(popularityFactor({ popularity: Infinity })).toBe(0); // non-finite → 0
+    expect(popularityFactor({ popularity: '4.5' })).toBe(0.875);
+    expect(popularityFactor({ popularity: 'not-a-number' })).toBe(0);
+    expect(popularityFactor({ popularity: null })).toBe(0);
+  });
+
   it('cost rewards cheaper stops and treats unknown tiers as mid-priced', () => {
     expect(costFactor({ costTier: 0 })).toBeGreaterThan(costFactor({ costTier: 1 }));
     expect(costFactor({ costTier: 1 })).toBeGreaterThan(costFactor({ costTier: 2 }));
     expect(costFactor({ costTier: 2 })).toBeGreaterThan(costFactor({ costTier: 3 }));
     expect(costFactor({})).toBe(costFactor({ costTier: 2 }));
+  });
+
+  it('cost treats out-of-range and non-numeric tiers as mid-priced', () => {
+    expect(costFactor({ costTier: 4 })).toBe(costFactor({ costTier: 2 }));
+    expect(costFactor({ costTier: -1 })).toBe(costFactor({ costTier: 2 }));
+    expect(costFactor({ costTier: 'free' })).toBe(costFactor({ costTier: 2 }));
+    expect(costFactor({ costTier: null })).toBe(costFactor({ costTier: 2 }));
   });
 
   it('detour is 1 with none, 0 at the maximum, and linear between', () => {
@@ -30,6 +46,13 @@ describe('scoring factors', () => {
     expect(detourFactor(500)).toBe(0);
     expect(detourFactor(-5)).toBe(1);
     expect(detourFactor(NaN)).toBe(0);
+  });
+
+  it('detour handles fractional and boundary values', () => {
+    expect(detourFactor(0.1)).toBeCloseTo(1 - 0.1 / MAX_DETOUR_MINUTES, 10);
+    expect(detourFactor(MAX_DETOUR_MINUTES - 0.001)).toBeGreaterThan(0);
+    expect(detourFactor(Infinity)).toBe(0);
+    expect(detourFactor('10')).toBe(0); // non-numeric → 0
   });
 
   describe('duration fit', () => {
@@ -56,6 +79,20 @@ describe('scoring factors', () => {
       expect(durationFactor(poi(), 0)).toMatchObject({ factor: 0, fits: false });
       expect(durationFactor(poi(), undefined)).toMatchObject({ fits: false });
       expect(durationFactor({}, 100)).toMatchObject({ fits: false });
+    });
+
+    it('handles zero or negative visit duration and extreme free time', () => {
+      expect(durationFactor(poi({ avgVisitMinutes: 0 }), 100).fits).toBe(true);
+      expect(durationFactor(poi({ avgVisitMinutes: -10 }), 100).factor).toBe(0);
+      expect(durationFactor(poi({ avgVisitMinutes: 60 }), 0.001).fits).toBe(false);
+      expect(durationFactor(poi({ avgVisitMinutes: 1 }), 10000).factor).toBeLessThan(0.1);
+    });
+
+    it('utilisation is reported even when the stop does not fit', () => {
+      const r = durationFactor(poi({ avgVisitMinutes: 200 }), 100, 10);
+      expect(r.fits).toBe(false);
+      expect(r.utilisation).toBeGreaterThan(1);
+      expect(r.factor).toBe(0);
     });
   });
 });
@@ -121,5 +158,45 @@ describe('calculateScore', () => {
   it('survives missing context', () => {
     expect(() => calculateScore(poi(), undefined)).not.toThrow();
     expect(calculateScore(poi(), undefined).fits).toBe(false);
+  });
+
+  // Phase III edge cases
+  it('handles a completely empty POI object', () => {
+    const r = calculateScore({}, ctx);
+    expect(r.factors.popularity).toBe(0);
+    expect(r.factors.cost).toBe(costFactor({}));
+    expect(r.fits).toBe(false);
+    expect(r.score).toBeGreaterThanOrEqual(0);
+  });
+
+  it('score is always in [0, 100] even with extreme inputs', () => {
+    const extremes = [
+      calculateScore({ popularity: 100, costTier: 0, avgVisitMinutes: 1 }, { detourMinutes: 0, availableMinutes: 10000 }),
+      calculateScore({ popularity: 0, costTier: 99, avgVisitMinutes: 9999 }, { detourMinutes: 999, availableMinutes: 1 }),
+      calculateScore(poi(), { detourMinutes: -100, availableMinutes: 50 }),
+    ];
+    for (const r of extremes) {
+      expect(r.score).toBeGreaterThanOrEqual(0);
+      expect(r.score).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it('zero weight on a factor effectively ignores it', () => {
+    const weights = normaliseWeights({ popularity: 0, cost: 1, duration: 0, detour: 0 });
+    const a = calculateScore(poi({ popularity: 5, costTier: 0 }), ctx, weights);
+    const b = calculateScore(poi({ popularity: 1, costTier: 0 }), ctx, weights);
+    expect(a.score).toBe(b.score); // popularity ignored
+  });
+
+  it('produces stable scores under repeated calls (no floating-point drift)', () => {
+    const results = Array.from({ length: 20 }, () => calculateScore(poi(), ctx));
+    const scores = results.map((r) => r.score);
+    expect(new Set(scores).size).toBe(1);
+  });
+
+  it('partial weights object still works (missing factors use defaults before normalisation)', () => {
+    const r = calculateScore(poi(), ctx, { popularity: 1 }); // others default then normalised
+    expect(r.score).toBeGreaterThan(0);
+    expect(r.factors.popularity).toBeGreaterThan(0);
   });
 });
