@@ -8,7 +8,7 @@ import { requireFields, touchTrip } from '../utils/helpers.js';
  * edit). This factory builds the router once so the three feature routes stay
  * consistent and any future fix applies to all of them.
  */
-export function createCollectionRouter({ store, label, requiredFields, editableFields, sortBy }) {
+export function createCollectionRouter({ store, label, requiredFields, editableFields, sortBy, validate }) {
   const router = express.Router({ mergeParams: true });
   router.use(requireAuth, requireTripMember);
 
@@ -24,6 +24,9 @@ export function createCollectionRouter({ store, label, requiredFields, editableF
     const missing = requireFields(req.body, requiredFields);
     if (missing) return res.status(400).json({ message: missing });
 
+    const invalid = validate?.(req.body);
+    if (invalid) return res.status(400).json({ message: invalid });
+
     const payload = { tripId: req.trip._id, createdBy: req.user._id };
     editableFields.forEach((f) => {
       payload[f] = req.body[f] === undefined || req.body[f] === '' ? null : req.body[f];
@@ -37,6 +40,9 @@ export function createCollectionRouter({ store, label, requiredFields, editableF
   router.put('/:id', (req, res) => {
     const doc = store.findById(req.params.id);
     if (!doc || doc.tripId !== req.trip._id) return res.status(404).json({ message: `${label} not found.` });
+
+    const invalid = validate?.(req.body);
+    if (invalid) return res.status(400).json({ message: invalid });
 
     const patch = {};
     editableFields.forEach((f) => {

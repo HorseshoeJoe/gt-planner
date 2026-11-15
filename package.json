@@ -1,8 +1,8 @@
 {
   "name": "group-travel-planner",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
-  "description": "Group Travel Planner Application - CPAN 314 Group 3 - Phase 3 Final Prototype",
+  "description": "Group Travel Planner Application - CPAN 324 Group 3 - Phase I",
   "workspaces": [
     "server",
     "client"

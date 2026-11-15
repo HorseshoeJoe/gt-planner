@@ -1,10 +1,11 @@
 # Group Travel Planner — How to Run It
 
-CPAN 314 · Group 3 — Henry Dineros, Han-Pin Hung
+CPAN 324 · Group 3 — Henry Dineros, Han-Pin Hung, Jonathan Pipim, Vedant Patel
 
-**No database implemented yet.** There is no database to install, no account
-to create, and nothing to configure. All data is saved to a file inside the
-project folder.
+**No database server needed.** There is nothing to install, no account to
+create, and nothing to configure. All data is saved to a local JSON file inside
+the project folder (`server/data.json`). See `README.md` for the full project
+overview and `docs/DATA_MODEL.md` for how the data is organised.
 
 ---
 
@@ -25,11 +26,12 @@ something like `v22.11.0`.
 
 ## Step 2 — Open the project in VS Code
 
-1. Unzip `Project_Prototype_Final_Group3.zip` anywhere. A plain folder such as
+1. Clone the repository (`git clone https://github.com/HorseshoeJoe/gt-planner.git`)
+   or unzip a download of it. A plain folder such as
    `C:\Projects` works best — avoid putting it inside OneDrive, which can lock
    files while npm is installing.
 2. Open **VS Code** → **File** → **Open Folder…** → choose the
-   **group-travel-planner** folder (the one containing `client` and `server`).
+   **gt-planner** folder (the one containing `client` and `server`).
 3. Open the built-in terminal: **Terminal** → **New Terminal**
    (or press `` Ctrl + ` ``).
 
@@ -133,5 +135,6 @@ and read it.
 npm test
 ```
 
-84 tests: 69 covering the API, schedule-conflict rules, budget maths and the data
-store, plus 15 covering the forms and dialogs in the browser.
+About 100 tests: the API, the primary user flow, schedule-conflict rules, budget
+maths, the data store and the POI dataset on the server, plus the forms and
+dialogs in the browser. Results are recorded in `docs/TESTING.md`.
