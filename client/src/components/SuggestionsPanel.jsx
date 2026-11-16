@@ -603,6 +603,8 @@ export default function SuggestionsPanel({
         <div className="flex flex-wrap gap-2">
           <Button
             variant="secondary"
+            aria-expanded={showWeights}
+aria-controls="suggestion-weights-panel"
             onClick={() =>
               setShowWeights(
                 (current) =>
@@ -629,8 +631,11 @@ export default function SuggestionsPanel({
         </div>
       </div>
 
-      {showWeights && (
-        <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+     {showWeights && (
+  <div
+    id="suggestion-weights-panel"
+    className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4"
+  >
           <div className="mb-3">
             <p className="font-semibold text-slate-900">
               Recommendation weights
